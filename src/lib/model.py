@@ -281,7 +281,7 @@ class DurationPredictor(nn.Module):
                 x = module(x.transpose(1, 2)).transpose(1, 2)
             else:
                 x = module(x)
-        return x.squeeze()
+        return x.squeeze(2)
 
 
 
@@ -391,12 +391,24 @@ class FastSpeech(nn.Module):
         melspec_x = torch.zeros(x.shape[0], expand_dim, x.shape[2]).to(x.device)
 
         # expand seq len
+        # for batch_elem_idx in range(x.shape[0]):
+            # filled = 0
+            # for frame_idx in range(x.shape[1]):
+                # for _ in range(durations[batch_elem_idx, frame_idx]):
+                    # melspec_x[batch_elem_idx, filled, :] = x[batch_elem_idx, frame_idx, :]
+                    # filled += 1
+
+        batch = []
         for batch_elem_idx in range(x.shape[0]):
-            filled = 0
+            batch_elem = []
             for frame_idx in range(x.shape[1]):
-                for _ in range(durations[batch_elem_idx, frame_idx]):
-                    melspec_x[batch_elem_idx, filled, :] = x[batch_elem_idx, frame_idx, :]
-                    filled += 1
+                one_phoneme = [x[batch_elem_idx, frame_idx, :].unsqueeze(0)
+                               for _ in range(durations[batch_elem_idx, frame_idx])]
+                batch_elem += one_phoneme
+            # batch_elem: (len, emb_size)
+            batch_elem = torch.cat(batch_elem, dim=0)
+            batch.append(batch_elem)
+        melspec_x = pad_sequence(batch).transpose(0, 1) 
         return melspec_x
 
     def forward(self, x, teacher_durations, ph_mask=None, spec_mask=None):
@@ -404,12 +416,13 @@ class FastSpeech(nn.Module):
         x = self.PH_E(x)
 
         # x: (bsz, len, emb_size)
+        # Phoneme part
         x = self.PH_FFT(x, ph_mask)
         durations = self.DP(x)
         x = self.length_regulator(x, teacher_durations)
-        # print(x.shape, spec_mask.shape)
+        
+        # Spectrogram part
         x = self.MS_FFT(x, spec_mask)
-
         # x = self.L(x)
         for i, module in enumerate(self.L):
             if i in [0, 3]:
@@ -417,7 +430,8 @@ class FastSpeech(nn.Module):
             else:
                 x = module(x)
         x = x.transpose(1, 2)
-        x = x.masked_fill(~spec_mask.squeeze()[:, None, :], SPEC_FILL)
+        if spec_mask is not None:
+            x = x.masked_fill(~spec_mask.squeeze()[:, None, :], SPEC_FILL)
         return x, durations
 
     def inference(self, x, tokens_length):

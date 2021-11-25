@@ -32,10 +32,7 @@ class Config:
         if self.device == 'cpu':
             model = model.to('cpu')
         elif 'cuda' in self.device:
-            # model = nn.DataParallel(
-            #     model.to(self.device),
-            #     device_ids=self.config['device_ids'],
-            # )
+            # work only on one GPU..............
             model = model.to(self.device)
         print(model)
         print('Number of parameters', sum(p.numel() for p in model.parameters()))

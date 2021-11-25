@@ -42,6 +42,18 @@ def create_mask(src_tensor, lengths):
             < lengths[:, None])
 
 
+def rescale_durations(durations):
+    '''
+    Rescale the lengths so that their sum is equal to 1
+    
+    Args:
+        durations (Tensor):
+            Tensor with durations
+    '''
+    durations = (1. / durations.sum()) * durations
+    return durations
+
+
 def calc_alignment_and_spec(melspec, aligner, waveform, waveform_length, token_length, transcript):
     '''
     Calculate alignments (teacher phoneme durations) and
@@ -67,7 +79,9 @@ def calc_alignment_and_spec(melspec, aligner, waveform, waveform_length, token_l
     spec_length = []
     for idx in range(waveform.shape[0]):
         durations_ = teacher_durations_raw[idx][:token_length[idx]]
-        pivots_wave = (durations_ * waveform_length[idx]).cumsum(dim=0).int()
+        durations_ = rescale_durations(durations_)
+        pivots_wave = torch.round((durations_ * waveform_length[idx]).cumsum(dim=0)).int()
+
         spec = melspec(waveform[idx][:pivots_wave[-1]])
         specs.append(spec.squeeze().transpose(0, 1))
         spec_length.append(spec.shape[-1])
