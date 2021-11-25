@@ -387,17 +387,7 @@ class FastSpeech(nn.Module):
         # durations: (bsz, len)
         durations = (durations * alpha).int()
 
-        expand_dim = torch.max(torch.sum(durations, dim=-1))
-        melspec_x = torch.zeros(x.shape[0], expand_dim, x.shape[2]).to(x.device)
-
         # expand seq len
-        # for batch_elem_idx in range(x.shape[0]):
-            # filled = 0
-            # for frame_idx in range(x.shape[1]):
-                # for _ in range(durations[batch_elem_idx, frame_idx]):
-                    # melspec_x[batch_elem_idx, filled, :] = x[batch_elem_idx, frame_idx, :]
-                    # filled += 1
-
         batch = []
         for batch_elem_idx in range(x.shape[0]):
             batch_elem = []
