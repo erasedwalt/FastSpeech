@@ -4,7 +4,49 @@ from torch.optim.lr_scheduler import _LRScheduler
 import math
 
 
-########## TAKEN FROM https://github.com/katsura-jp/pytorch-cosine-annealing-with-warmup ##########
+class Transformer(_LRScheduler):
+    '''
+    LR scheduler from Attention is All You Need paper
+
+    Args:
+        optimizer (Optimizer):
+            Optimizer
+        d_model (int):
+            Transformer hidden size
+        warmup (int):
+            Number of warmup steps
+        last_epoch (int):
+            Index of last epoch
+    '''
+    def __init__(self, optimizer, d_model, warmup, last_epoch=-1):
+        self.d_model = d_model
+        self.lr = 0.
+        self.steps = 0
+        self.warmup = warmup
+        super().__init__(optimizer, last_epoch)
+
+    def init_scheduler(self):
+        for param_group in self.optimizer.param_groups:
+            param_group['lr'] = self.min_lr
+
+    def calculate_lr(self):
+        new_lr = (1 / math.sqrt(self.d_model)) * min(
+            math.sqrt(1 / self.steps),
+            self.steps * math.sqrt((1 / self.warmup) ** 3)
+        )
+        return new_lr
+
+    def step(self):
+        self.steps += 1
+        self.lr = self.calculate_lr()
+        for param_group in self.optimizer.param_groups:
+            param_group['lr'] = self.lr
+
+    def get_lr(self):
+        return [self.lr]
+
+
+########## NEXT CODE TAKEN FROM https://github.com/katsura-jp/pytorch-cosine-annealing-with-warmup ##########
 
 
 class CosineAnnealingWarmup(_LRScheduler):

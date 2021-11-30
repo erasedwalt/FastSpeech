@@ -1,5 +1,6 @@
 import torch
 from torch.nn.utils.rnn import pad_sequence
+import torchaudio
 
 import math
 
@@ -72,7 +73,8 @@ def calc_alignment_and_spec(melspec, aligner, waveform, waveform_length, token_l
             Waveform transcripts
     '''
     with torch.no_grad():
-        teacher_durations_raw = aligner(waveform, waveform_length, transcript)
+        resampled_waveform = torchaudio.functional.resample(waveform, 22050, 16000)
+        teacher_durations_raw = aligner(resampled_waveform, waveform_length, transcript)
 
     teacher_durations = []
     specs = []

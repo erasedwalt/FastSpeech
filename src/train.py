@@ -154,7 +154,7 @@ def evaluate(
         log_transcript = transcript[rand_int]
         log_pred_spec = pred_spec[rand_int].detach()[:, :spec_length[rand_int]]
         log_true_spec = specs[rand_int].detach()[:, :spec_length[rand_int]]
-        log_pred_audio = vocoder(log_pred_spec.unsqueeze(0))
+        log_pred_audio = vocoder.inference(log_pred_spec.unsqueeze(0))
         log_true_audio = waveform[rand_int] # vocoder(log_true_spec.unsqueeze(0))
 
     if logger is not None:

@@ -58,7 +58,7 @@ class MultiHeadAttention(nn.Module):
         # energies: (bsz, heads, len, len)
         # mask: (bsz, 1, 1, len)
         if mask is not None:
-            energies = energies.masked_fill(~mask, 0.) 
+            energies = energies.masked_fill(~mask, -1e9) 
         alphas = energies.softmax(dim=-1)
 
         # replace heads <-> len
@@ -97,6 +97,7 @@ class PositionalEncoding(nn.Module):
     def forward(self, x):
         # x: (seq_len, batch_size, embedding_dim)
         x += self.encoding[:x.size(0)]
+        x = self.dropout(x)
         return x
 
 
@@ -316,13 +317,16 @@ class FastSpeech(nn.Module):
             Maximum length of phoneme sequence
         max_melspec_len (int):
             Maximum length of spectrogram sequence
+        last_conv (bool):
+            Whether to use convolution as last layer
     '''
     def __init__(self, vocabulary_size, num_phoneme_block=6, num_melspec_block=6,
                  num_heads=2, hidden_size=384, conv_hidden_size=1536,
                  kernel_size=3, groups=1, dropout=0.1, max_phoneme_len=3000,
-                 max_melspec_len=3000):
+                 max_melspec_len=3000, last_conv=False):
 
         super(FastSpeech, self).__init__()
+        self.last_conv = last_conv
 
         self.PH_E = nn.Embedding(vocabulary_size, hidden_size)
 
@@ -356,31 +360,34 @@ class FastSpeech(nn.Module):
             max_len=max_melspec_len
         )
 
-        # I changed last layer because 
-        # outputs were ragged and abrupt
-        # self.L = nn.Linear(hidden_size, 80)
-
-        self.L = nn.ModuleList([
-            nn.Conv1d(
-                in_channels=hidden_size,
-                out_channels=hidden_size,
-                kernel_size=kernel_size,
-                padding=kernel_size // 2
-            ),
-            nn.LayerNorm(hidden_size),
-            nn.ReLU(inplace=True),
-            nn.Conv1d(
-                in_channels=hidden_size,
-                out_channels=80,
-                kernel_size=kernel_size,
-                padding=kernel_size // 2
-            ),
-        ])
+        if self.last_conv:
+            self.L = nn.ModuleList([
+                nn.Conv1d(
+                    in_channels=hidden_size,
+                    out_channels=hidden_size,
+                    kernel_size=kernel_size,
+                    padding=kernel_size // 2
+                ),
+                nn.LayerNorm(hidden_size),
+                nn.ReLU(inplace=True),
+                nn.Conv1d(
+                    in_channels=hidden_size,
+                    out_channels=80,
+                    kernel_size=kernel_size,
+                    padding=kernel_size // 2
+                ),
+            ])
+        else:
+            self.L = nn.Linear(hidden_size, 80)
 
         nn.init.normal_(self.PH_E.weight, mean=0., std=1 / math.sqrt(hidden_size))
-        for module in self.L:
-            if hasattr(module, 'weight') and module.weight.dim() > 1:
-                nn.init.xavier_uniform_(module.weight)
+
+        if self.last_conv:
+            for module in self.L:
+                if hasattr(module, 'weight') and module.weight.dim() > 1:
+                    nn.init.xavier_uniform_(module.weight)
+        else:
+            nn.init.xavier_uniform_(self.L.weight)
 
     def length_regulator(self, x, durations, alpha=1.):
         # x: (bsz, len, emb_size)
@@ -410,21 +417,25 @@ class FastSpeech(nn.Module):
         x = self.PH_FFT(x, ph_mask)
         durations = self.DP(x)
         x = self.length_regulator(x, teacher_durations)
-        
+
         # Spectrogram part
         x = self.MS_FFT(x, spec_mask)
-        # x = self.L(x)
-        for i, module in enumerate(self.L):
-            if i in [0, 3]:
-                x = module(x.transpose(1, 2)).transpose(1, 2)
-            else:
-                x = module(x)
+
+        if self.last_conv:
+            for i, module in enumerate(self.L):
+                if i in [0, 3]:
+                    x = module(x.transpose(1, 2)).transpose(1, 2)
+                else:
+                    x = module(x)
+        else:
+            x = self.L(x)
+
         x = x.transpose(1, 2)
         if spec_mask is not None:
             x = x.masked_fill(~spec_mask.squeeze()[:, None, :], SPEC_FILL)
         return x, durations
 
-    def inference(self, x, tokens_length):
+    def inference(self, x, tokens_length, alpha=1.):
         ph_mask = create_mask(x, tokens_length).to(x.device)
 
         # x: (bsz, len)
@@ -438,17 +449,19 @@ class FastSpeech(nn.Module):
         durations = [durations[i][:tokens_length[i]] for i in range(durations.shape[0])]
         durations = torch.round(pad_sequence(durations, batch_first=True)).int()
         spec_length = durations.sum(dim=1)
-        x = self.length_regulator(x, durations)
+        x = self.length_regulator(x, durations, alpha)
         spec_mask = create_mask(x.transpose(1, 2), spec_length).to(x.device)
         x = self.MS_FFT(x, spec_mask[:, None, None, :])
 
-        # x = self.L(x)
+        if self.last_conv:
+            for i, module in enumerate(self.L):
+                if i in [0, 3]:
+                    x = module(x.transpose(1, 2)).transpose(1, 2)
+                else:
+                    x = module(x)
+        else:
+            x = self.L(x)
 
-        for i, module in enumerate(self.L):
-            if i in [0, 3]:
-                x = module(x.transpose(1, 2)).transpose(1, 2)
-            else:
-                x = module(x)
         x = x.transpose(1, 2)
         x = x.masked_fill(~spec_mask[:, None, :], SPEC_FILL)
         return x, durations

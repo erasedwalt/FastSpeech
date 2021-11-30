@@ -4,11 +4,11 @@ from torch.utils.data import DataLoader
 
 import json
 
+import lib.scheduler as scheduler
 from .model import FastSpeech
 from .aligner import GraphemeAligner
 from .melspectrogram import MelSpectrogram
 from .collator import LJSpeechCollator
-from .scheduler import CosineAnnealingWarmup
 from .dataset import LJSpeechDataset
 from .loss import FastSpeechLoss 
 from .logger import WandbLogger
@@ -46,11 +46,12 @@ class Config:
 
     def get_scheduler(self, optimizer):
         if 'scheduler' in self.config:
-            scheduler = CosineAnnealingWarmup(optimizer, **self.config['scheduler'])
+            scheduler_class = getattr(scheduler, self.config['scheduler']['name'])
+            scheduler_ = scheduler_class(optimizer, **self.config['scheduler']['args'])
         else:
-            scheduler = None
-        print(scheduler)
-        return scheduler
+            scheduler_ = None
+        print(scheduler_)
+        return scheduler_
 
     def get_dataloaders(self):
         dataset = LJSpeechDataset(self.config['data']['path'])
