@@ -165,11 +165,6 @@ class FeedForwardBlock(nn.Module):
         x = self.N1(x)
         x = self.MHA(x, mask, attentions)
 
-        if mask is not None:
-          x = x.transpose(-1, -2)
-          x = x.masked_fill(~(mask.squeeze().unsqueeze(-2)), 0.)
-          x = x.transpose(-1, -2)
-
         # x: (bsz, len, emb_size)
         x += residual
         residual = x
@@ -182,7 +177,13 @@ class FeedForwardBlock(nn.Module):
 
         # transpose len <-> emb_size for convs
         x = self.C(x.transpose(1, 2)).transpose(1, 2)
-        x += residual 
+        x += residual
+
+        if mask is not None:
+          x = x.transpose(-1, -2)
+          x = x.masked_fill(~(mask.squeeze().unsqueeze(-2)), 0.)
+          x = x.transpose(-1, -2)
+
         return x
 
 
