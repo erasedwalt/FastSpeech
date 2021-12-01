@@ -44,7 +44,7 @@ class MultiHeadAttention(nn.Module):
         nn.init.xavier_uniform_(self.W_V.weight)
         nn.init.xavier_uniform_(self.W_O.weight)
 
-    def forward(self, x, mask=None):
+    def forward(self, x, mask=None, attentions=None):
         bsz, length = x.shape[0], x.shape[1]
 
         # x: (bsz, len, emb_size)
@@ -60,6 +60,8 @@ class MultiHeadAttention(nn.Module):
         if mask is not None:
             energies = energies.masked_fill(~mask, -1e9) 
         alphas = energies.softmax(dim=-1)
+        if attentions is not None:
+            attentions.append(alphas.detach().cpu())
 
         # replace heads <-> len
         z_s = torch.matmul(alphas, values).transpose(1, 2).contiguous().view(bsz, length, -1)
@@ -157,16 +159,26 @@ class FeedForwardBlock(nn.Module):
             if hasattr(module, 'weight'):
                 nn.init.xavier_uniform_(module.weight)
 
-    def forward(self, x, mask=None):
+    def forward(self, x, mask=None, attentions=None):
         # x: (bsz, len, emb_size)
         residual = x
         x = self.N1(x)
-        x = self.MHA(x, mask)
+        x = self.MHA(x, mask, attentions)
+
+        if mask is not None:
+          x = x.transpose(-1, -2)
+          x = x.masked_fill(~(mask.squeeze().unsqueeze(-2)), 0.)
+          x = x.transpose(-1, -2)
 
         # x: (bsz, len, emb_size)
         x += residual
         residual = x
         x = self.N2(x)
+
+        if mask is not None:
+          x = x.transpose(-1, -2)
+          x = x.masked_fill(~(mask.squeeze().unsqueeze(-2)), 0.)
+          x = x.transpose(-1, -2)
 
         # transpose len <-> emb_size for convs
         x = self.C(x.transpose(1, 2)).transpose(1, 2)
@@ -215,11 +227,11 @@ class FeedForwardTransformer(nn.Module):
         ])
         self.LN = nn.LayerNorm(hidden_size)
 
-    def forward(self, x, mask=None):
+    def forward(self, x, mask=None, attentions=None):
         # x: (batch, len, emb_size)
         x = self.PE(x.transpose(0, 1)).transpose(0, 1)
         for block in self.Bs:
-            x = block(x, mask)
+            x = block(x, mask, attentions)
         x = self.LN(x)
         return x
 
@@ -437,12 +449,13 @@ class FastSpeech(nn.Module):
 
     def inference(self, x, tokens_length, alpha=1.):
         ph_mask = create_mask(x, tokens_length).to(x.device)
+        attentions = []
 
         # x: (bsz, len)
         x = self.PH_E(x)
 
         # x: (bsz, len, emb_size)
-        x = self.PH_FFT(x, ph_mask[:, None, None, :])
+        x = self.PH_FFT(x, ph_mask[:, None, None, :], attentions)
         durations = torch.exp(self.DP(x))
 
         # durations: (bsz, len)
@@ -451,7 +464,7 @@ class FastSpeech(nn.Module):
         spec_length = durations.sum(dim=1)
         x = self.length_regulator(x, durations, alpha)
         spec_mask = create_mask(x.transpose(1, 2), spec_length).to(x.device)
-        x = self.MS_FFT(x, spec_mask[:, None, None, :])
+        x = self.MS_FFT(x, spec_mask[:, None, None, :], attentions)
 
         if self.last_conv:
             for i, module in enumerate(self.L):
@@ -464,4 +477,4 @@ class FastSpeech(nn.Module):
 
         x = x.transpose(1, 2)
         x = x.masked_fill(~spec_mask[:, None, :], SPEC_FILL)
-        return x, durations
+        return x, durations, attentions

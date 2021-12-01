@@ -19,3 +19,11 @@ class WandbLogger:
                 'True Spec': wandb.Image(true_spec.squeeze(), caption=transcript)
             }
         )
+
+    def log_attention(self, ph_attn, spec_attn):
+        wandb.log(
+            {
+                'Phoneme Attention': wandb.Image(ph_attn),
+                'Spectrogram Attention': wandb.Image(spec_attn)
+            }
+        )

@@ -31,6 +31,7 @@ def train(
     vocoder,
     device,
     exp_name,
+    config,
     clip=10.,
     logger=None,
     log_interval=500,
@@ -95,7 +96,7 @@ def train(
  
             if (global_steps + 1) % log_interval == 0:
                 best_loss = evaluate(model, val_loader, criterion, aligner, melspec,
-                                     vocoder, device, exp_name, logger, best_loss)
+                                     vocoder, device, exp_name, config, logger, best_loss)
                 model.train()
 
 
@@ -108,6 +109,7 @@ def evaluate(
     vocoder,
     device,
     exp_name,
+    config,
     logger=None,
     best_loss=10000.,
 ):
@@ -138,7 +140,7 @@ def evaluate(
             spec_mask = create_mask(specs, spec_length).to(device)
             durations_mask = create_mask(tokens, token_length).to(device)
 
-            pred_spec, pred_durations = model.inference(tokens, token_length)
+            pred_spec, pred_durations, attentions = model.inference(tokens, token_length)
 
             # match sequence length
             pred_spec = pred_spec[:, :, :specs.shape[-1]]
@@ -155,7 +157,26 @@ def evaluate(
         log_pred_spec = pred_spec[rand_int].detach()[:, :spec_length[rand_int]]
         log_true_spec = specs[rand_int].detach()[:, :spec_length[rand_int]]
         log_pred_audio = vocoder.inference(log_pred_spec.unsqueeze(0))
-        log_true_audio = waveform[rand_int] # vocoder(log_true_spec.unsqueeze(0))
+        log_true_audio = waveform[rand_int]
+
+        # Attention logging
+        pred_durations = pred_durations.sum(dim=1)
+        ph_attn = attentions[:config['model']['num_phoneme_block']]
+        spec_attn = attentions[config['model']['num_phoneme_block']:]
+        for i in range(len(ph_attn)):
+            ph_attn[i] = ph_attn[i][rand_int][0][:token_length[rand_int], :token_length[rand_int]]
+        for i in range(len(spec_attn)):
+            spec_attn[i] = spec_attn[i][rand_int][0][:pred_durations[rand_int], :pred_durations[rand_int]]
+
+        ph_pivot = len(ph_attn) // 2
+        ph_row1 = torch.cat(ph_attn[:ph_pivot], dim=1)
+        ph_row2 = torch.cat(ph_attn[ph_pivot:], dim=1)
+        ph_attn = torch.cat([ph_row1, ph_row2], dim=0)
+
+        spec_pivot = len(spec_attn) // 2
+        spec_row1 = torch.cat(spec_attn[:spec_pivot], dim=1)
+        spec_row2 = torch.cat(spec_attn[spec_pivot:], dim=1)
+        spec_attn = torch.cat([spec_row1, spec_row2], dim=0)
 
     if logger is not None:
         logger.log_spec_and_audio(
@@ -165,6 +186,7 @@ def evaluate(
             log_pred_audio.detach().cpu(),
             log_true_audio.detach().cpu()
         )
+        logger.log_attention(ph_attn.clamp(1e-5).log(), spec_attn.clamp(1e-5).log())
 
     global_loss /= len(val_loader)
 
@@ -207,5 +229,5 @@ if __name__ == '__main__':
     logger = config.get_logger()
 
     train(model, optimizer, scheduler, train_loader, val_loader, criterion,
-          aligner, melspec, vocoder, config.device, config.exp_name, config.clip,
+          aligner, melspec, vocoder, config.device, config.exp_name, config.config, config.clip,
           logger, config.log_interval, config.best_loss)
