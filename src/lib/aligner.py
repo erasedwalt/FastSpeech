@@ -38,6 +38,9 @@ class GraphemeAligner(nn.Module):
         self._labels = torchaudio.pipelines.WAV2VEC2_ASR_BASE_960H.get_labels()
         self._char2index = {c: i for i, c in enumerate(self._labels)}
         self._unk_index = self._char2index['<unk>']
+        self._resampler = torchaudio.transforms.Resample(
+            orig_freq=22050, new_freq=16000
+        )
 
     def _decode_text(self, text):
         text = text.replace(' ', '|').upper()
@@ -59,9 +62,9 @@ class GraphemeAligner(nn.Module):
 
         durations = []
         for index in range(batch_size):
-            emission, _ = self._wav2vec2(
-                wavs[index, :wav_lengths[index]].unsqueeze(dim=0)
-            )
+            current_wav = wavs[index, :wav_lengths[index]].unsqueeze(dim=0)
+            current_wav = self._resampler(current_wav)
+            emission, _ = self._wav2vec2(current_wav)
             emission = emission.log_softmax(dim=-1).squeeze(dim=0).cpu()
 
             tokens = self._decode_text(texts[index])
