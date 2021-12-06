@@ -1,0 +1,6 @@
+wandb
+numpy
+torch==1.10.0+cu111
+tqdm==4.62.3
+torchaudio==0.10.0+cu111
+librosa==0.8.1
