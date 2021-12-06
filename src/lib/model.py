@@ -402,10 +402,9 @@ class FastSpeech(nn.Module):
         else:
             nn.init.xavier_uniform_(self.L.weight)
 
-    def length_regulator(self, x, durations, alpha=1.):
+    def length_regulator(self, x, durations):
         # x: (bsz, len, emb_size)
         # durations: (bsz, len)
-        durations = (durations * alpha).int()
 
         # expand seq len
         batch = []
@@ -461,9 +460,11 @@ class FastSpeech(nn.Module):
 
         # durations: (bsz, len)
         durations = [durations[i][:tokens_length[i]] for i in range(durations.shape[0])]
-        durations = torch.round(pad_sequence(durations, batch_first=True)).int()
+        durations = pad_sequence(durations, batch_first=True)
+        durations = torch.round(durations * alpha).int()
+
         spec_length = durations.sum(dim=1)
-        x = self.length_regulator(x, durations, alpha)
+        x = self.length_regulator(x, durations)
         spec_mask = create_mask(x.transpose(1, 2), spec_length).to(x.device)
         x = self.MS_FFT(x, spec_mask[:, None, None, :], attentions)
 
