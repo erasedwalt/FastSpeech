@@ -1,0 +1,67 @@
+{
+        "exp_name": "fastspeech",
+        "device": "cuda:0",
+        "device_ids": [0],
+        "log_interval": 500,
+        "clip": 10,
+        "best_loss": 10000,
+        "chkpt": "",
+        "model": {
+                "vocabulary_size": 38,
+                "num_phoneme_block": 4,
+                "num_melspec_block": 4,
+                "num_heads": 2,
+                "hidden_size": 256,
+                "conv_hidden_size": 1024,
+                "kernel_size": 5,
+                "groups": 1,
+                "dropout": 0.1,
+                "max_phoneme_len": 3000,
+                "max_melspec_len": 3000
+        },
+        "optim": {
+                "name": "Adam",
+                "args": {
+                        "lr": 3e-4,
+                        "betas": [0.9, 0.98],
+                        "eps": 1e-9
+                }
+        },
+        "scheduler": {
+                "name": "Transformer",
+                "args": {
+                        "d_model": 256,
+                        "warmup": 4000
+                }
+        },
+        "data": {
+                "path": "../dataset/",
+                "train": {
+                        "batch_size": 64,
+                        "shuffle": true,
+                        "num_workers": 16,
+                        "pin_memory": true,
+                        "drop_last": true
+                },
+                "val": {
+                        "batch_size": 64,
+                        "shuffle": false,
+                        "num_workers": 16,
+                        "pin_memory": true,
+                        "drop_last": false
+                }
+        },
+        "melspec": {
+                "sample_rate": 22050,
+                "win_length": 1024,
+                "hop_length": 256,
+                "n_fft": 1024,
+                "f_min": 0,
+                "f_max": 8000,
+                "n_mels": 80
+        },
+        "wandb": {
+                "key": "<YOUR WANSB KEY>",
+                "project": "FastSpeech"
+        }
+}
